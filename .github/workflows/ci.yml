@@ -26,3 +26,21 @@ jobs:
         run: npm test
       - name: Inspect package
         run: npm pack --dry-run --ignore-scripts
+
+  harness-install-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install exact Harness CLI
+        run: npm install --global @deepseek-ai/dsh@0.2.0-rc.2 pnpm@11.7.0
+      - name: Install plugin into a clean profile without credentials
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-bridge-smoke
+          CI: 'true'
+        run: |
+          dsh plugin --profile web add .
+          dsh plugin --profile web list
