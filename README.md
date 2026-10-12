@@ -1,5 +1,7 @@
 # DSH Telegram Bridge
 
+[![Node tests and Harness install](https://github.com/amonrapmon/dsh-telegram-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/amonrapmon/dsh-telegram-bridge/actions/workflows/ci.yml)
+
 **Topic-aware Telegram transport for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).**
 
 One bot. Multiple chats and topics. A separate, persistent Harness conversation for each Telegram topic.
