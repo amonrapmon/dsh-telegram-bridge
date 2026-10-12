@@ -18,6 +18,10 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Syntax check
         run: npm run check
+      - name: Resolve Harness SDK peer dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verify plugin entrypoint loads
+        run: node -e "import('./lib/index.js').then(m => { if (m.name !== 'dsh-telegram-bridge') process.exit(1) })"
       - name: Unit and mocked integration tests
         run: npm test
       - name: Inspect package
