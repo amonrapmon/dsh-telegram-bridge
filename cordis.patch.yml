@@ -1,0 +1,4 @@
+# The bridge remains disabled unless you supply a bot token and an allowed user ID.
+- insert:
+    - id: dsh-telegram-bridge
+      name: '@amonrapmon/dsh-telegram-bridge'
