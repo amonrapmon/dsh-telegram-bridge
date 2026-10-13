@@ -73,7 +73,7 @@ globalThis.fetch = async function fakeTelegramFetch(url, options) {
         update_id:104, message:{
           message_id:204,date:1760000002,from:{id:777777,is_bot:false},
           chat:{id:-100900,type:'supergroup',title:'CI Project',is_forum:true},
-          message_thread_id:77,text:'/new@HarnessSmokeBot',
+          message_thread_id:77,text:'/new',
         },
       }]});
     }
