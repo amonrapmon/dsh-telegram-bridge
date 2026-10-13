@@ -115,3 +115,14 @@ test('a Telegram HTML parsing error retries final text without parse_mode',async
   assert.equal(calls[1].text,'**Ответ**');
   assert.equal('parse_mode' in calls[1],false);
 });
+
+test('native Telegram typing action targets an exact group topic',async()=>{
+  const {calls,api}=makeClient();
+  await api.sendTyping({chatId:-100800,threadId:28,chatType:'supergroup'});
+  assert.equal(calls[0].url.endsWith('/sendChatAction'),true);
+  assert.deepEqual(calls[0].body,{
+    chat_id:-100800,action:'typing',message_thread_id:28,
+  });
+  await api.sendTyping({chatId:-100800,threadId:1,chatType:'supergroup'});
+  assert.equal('message_thread_id' in calls[1].body,false);
+});
