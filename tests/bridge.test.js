@@ -30,7 +30,7 @@ function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) 
     },
     on(name,cb) {listeners.set(name,cb);return ()=>listeners.delete(name);},
   };
-  const approvals=[], callbacks=[], edited=[];
+  const approvals=[], callbacks=[], edited=[], refreshed=[];
   const api={
     async send(route,text) {output.push({key:route.key,chatId:route.chatId,threadId:route.threadId,text});},
     async requestGroupApproval(adminId,group,approval) {
@@ -42,13 +42,16 @@ function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) 
     async editApprovalCard(adminId,messageId,group,allowed) {
       edited.push({adminId,messageId,group,allowed});
     },
+    async refreshGroupApprovalCard(adminId,messageId,group,approval) {
+      refreshed.push({adminId,messageId,group,approval});
+    },
   };
   const newBridge=()=>new TelegramBridge(ctx,{
     allowedUserIds:[444],allowedGroupChatIds:[-100700],
     requireMention:false,workspaceId:'',
     stateFile:file,api,makeUserMessage:text=>({content:[{type:'text',text}],source:{kind:'user'}}),
   });
-  return {ctx,api,agents,inputs,output,approvals,callbacks,edited,newBridge,created:()=>created};
+  return {ctx,api,agents,inputs,output,approvals,callbacks,edited,refreshed,newBridge,created:()=>created};
 }
 const msg=(thread,text,chatId=444,chatType='private')=>({
   message:{ chat:{id:chatId,type:chatType,is_forum:chatType!=='private'},
@@ -257,5 +260,34 @@ test('callback for old request cannot approve a later request after rejoin',asyn
     assert.equal(b.store.groupApproval(chat.id).status,'pending');
     await b.handleUpdate({callback_query:cb(f.approvals[1],'allow')});
     assert.equal(b.store.groupApproval(chat.id).status,'allowed');
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('an old pending group approval card is upgraded in place once after restart',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-approval-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    b.allowedGroupChatIds.clear();b.botId=123456;
+    await b.initialize();
+    const chat={id:-1003456,type:'supergroup',title:'Old approval card'};
+    await b.handleUpdate({my_chat_member:{chat,old_chat_member:{status:'left'},
+      new_chat_member:{status:'member',user:{id:123456}}}});
+    assert.equal(f.approvals.length,1);
+    const oldToken=b.store.groupApproval(chat.id).token;
+    const oldMsg=b.store.groupApproval(chat.id).notificationMessageId;
+    assert.equal(b.store.groupApproval(chat.id).formatVersion,2);
+    // Simulate a state file generated before HTML/newline support.
+    delete b.store.state.groupApprovals[String(chat.id)].formatVersion;
+    await b.store.flush();
+    const b2=f.newBridge();
+    await b2.initialize();
+    await b2.refreshPendingApprovalCards();
+    assert.equal(f.refreshed.length,1);
+    assert.equal(f.refreshed[0].messageId,oldMsg);
+    assert.equal(f.refreshed[0].approval.token,oldToken);
+    assert.equal(b2.store.groupApproval(chat.id).formatVersion,2);
+    await b2.refreshPendingApprovalCards();
+    assert.equal(f.refreshed.length,1);
+    assert.equal(f.approvals.length,1);
   } finally {await rm(dir,{recursive:true,force:true});}
 });
