@@ -214,7 +214,7 @@ test('finished group turn catches up progressively instead of teleporting to ful
   streaming.frame('catchup-group',route,frame('start'));
   streaming.frame('catchup-group',route,frame('chunk',{chunk:{type:'text-delta',text:'Подготовил ответ: '}}));
   await tick();
-  const final='Подготовил ответ: '+('содержательная часть. '.repeat(50));
+  const final='Подготовил ответ: '+('содержательная часть. '.repeat(50)).trim();
   const state=streaming.detach('catchup-group');
   assert.equal(await streaming.finish(state,route,final),true);
   const edits=calls.filter(x=>x[0]==='edit').map(x=>x[2]);
@@ -232,7 +232,7 @@ test('finished private turn flushes remaining text via draft before durable form
   streaming.frame('catchup-private',route,frame('start'));
   streaming.frame('catchup-private',route,frame('chunk',{chunk:{type:'text-delta',text:'Привет. '}}));
   await tick();
-  const final='Привет. '+('Это длинное продолжение. '.repeat(30));
+  const final='Привет. '+('Это длинное продолжение. '.repeat(30)).trim();
   await streaming.finish(streaming.detach('catchup-private'),route,final);
   const drafts=calls.filter(x=>x[0]==='draft');
   assert.ok(drafts.length>=3);
