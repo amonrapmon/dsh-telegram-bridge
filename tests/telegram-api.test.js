@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TelegramApi, splitText } from '../lib/telegram-api.js';
+import { TelegramApi, splitText, escapeTelegramHtml } from '../lib/telegram-api.js';
 
 function makeClient() {
   const calls=[];
@@ -30,4 +30,29 @@ test('long Unicode text is split without cutting code points',async()=>{
   assert.equal(calls.map(c=>c.body.text).join(''),message);
   assert.equal(calls[1].body.message_thread_id,22);
   assert.deepEqual(splitText('🦊🍃',1),['🦊','🍃']);
+});
+
+test('approval card contains real newlines, bold HTML and safe group title',async()=>{
+  const {calls,api}=makeClient();
+  const title='Домашка <очень> & "важно"';
+  await api.requestGroupApproval(444,{id:-1004350969810,title},{token:'0123456789abcdef'});
+  const req=calls[0].body;
+  assert.equal(req.chat_id,444);
+  assert.equal(req.parse_mode,'HTML');
+  assert.equal(req.text,'🛡️ <b>Запрос на подключение группы</b>\n\n'
+    + '<b>Группа:</b> Домашка &lt;очень&gt; &amp; &quot;важно&quot;'
+    + '\n<b>ID:</b> <code>-1004350969810</code>'
+    + '\n\nРазрешить боту работать в этой группе?');
+  assert.equal(req.text.includes('\\n'),false);
+  assert.deepEqual(req.reply_markup.inline_keyboard[0].map(b=>b.callback_data),
+    ['group:allow:0123456789abcdef','group:deny:0123456789abcdef']);
+  await api.editApprovalCard(444,1000,{id:-1004350969810,title},true);
+  const confirmed=calls[1].body;
+  assert.equal(confirmed.parse_mode,'HTML');
+  assert.match(confirmed.text,/✅ <b>Доступ разрешён<\/b>\n\n<b>Группа:<\/b>/);
+  assert.ok(confirmed.text.includes('Домашка &lt;очень&gt; &amp; &quot;важно&quot;'));
+  assert.equal(confirmed.text.includes('\\n'),false);
+  await api.editApprovalCard(444,1000,{id:-1004350969810,title},false);
+  assert.match(calls[2].body.text,/❌ <b>Доступ отклонён<\/b>/);
+  assert.equal(escapeTelegramHtml('<b>unsafe</b>'),'&lt;b&gt;unsafe&lt;/b&gt;');
 });
