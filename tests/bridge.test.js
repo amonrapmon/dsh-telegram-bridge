@@ -30,15 +30,25 @@ function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) 
     },
     on(name,cb) {listeners.set(name,cb);return ()=>listeners.delete(name);},
   };
+  const approvals=[], callbacks=[], edited=[];
   const api={
     async send(route,text) {output.push({key:route.key,chatId:route.chatId,threadId:route.threadId,text});},
+    async requestGroupApproval(adminId,group,approval) {
+      const message_id=approvals.length+1000;
+      approvals.push({adminId,group,approval:structuredClone(approval),message_id});
+      return {message_id};
+    },
+    async answerCallbackQuery(id,text) {callbacks.push({id,text});},
+    async editApprovalCard(adminId,messageId,group,allowed) {
+      edited.push({adminId,messageId,group,allowed});
+    },
   };
   const newBridge=()=>new TelegramBridge(ctx,{
     allowedUserIds:[444],allowedGroupChatIds:[-100700],
     requireMention:false,workspaceId:'',
     stateFile:file,api,makeUserMessage:text=>({content:[{type:'text',text}],source:{kind:'user'}}),
   });
-  return {ctx,api,agents,inputs,output,newBridge,created:()=>created};
+  return {ctx,api,agents,inputs,output,approvals,callbacks,edited,newBridge,created:()=>created};
 }
 const msg=(thread,text,chatId=444,chatType='private')=>({
   message:{ chat:{id:chatId,type:chatType,is_forum:chatType!=='private'},
@@ -160,5 +170,92 @@ test('a failing /new replies with a configuration error and cannot block later u
     await b.handleUpdate(msg(0,'/status'));
     assert.equal(f.output.length,2);
     assert.match(f.output[1].text,/No conversation in this topic yet/);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('bot added to group triggers one private superadmin approval card; no env group ID',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-approval-'));
+  try {
+    const f=fixture(path.join(dir,'state.json'));
+    const b=f.newBridge();
+    b.allowedGroupChatIds.clear();
+    b.botId=123456;
+    await b.initialize();
+    const chat={id:-100900,type:'supergroup',title:'My Project',is_forum:true};
+    const update={my_chat_member:{chat,
+      old_chat_member:{status:'left'},new_chat_member:{status:'member',user:{id:123456}}}};
+    await b.handleUpdate(update);
+    await b.handleUpdate(update);
+    await b.handleUpdate({message:{...msg(11,'hello',-100900,'supergroup').message,chat,from:{id:444}}});
+    assert.equal(f.approvals.length,1);
+    assert.equal(f.approvals[0].adminId,444);
+    assert.equal(f.approvals[0].group.title,'My Project');
+    assert.equal(f.created(),0);
+    const token=f.approvals[0].approval.token;
+    const adminMessageId=f.approvals[0].message_id;
+    const callback={id:'cb1',from:{id:444},data:'group:allow:'+token,
+      message:{message_id:adminMessageId,chat:{id:444,type:'private'}}};
+    await b.handleUpdate({callback_query:callback});
+    assert.equal(b.store.groupApproval(-100900).status,'allowed');
+    assert.equal(f.edited[0].allowed,true);
+    await b.handleUpdate({message:{...msg(11,'@HarnessSmokeBot hello',-100900,'supergroup').message,chat,from:{id:444}}});
+    assert.equal(f.created(),1);
+    assert.equal(f.inputs.length,1);
+    // An authorized group may have different topic sessions.
+    await b.handleUpdate({message:{...msg(12,'hello in topic 2',-100900,'supergroup').message,chat,from:{id:444}}});
+    assert.equal(f.created(),2);
+    const b2=f.newBridge();b2.allowedGroupChatIds.clear();
+    await b2.initialize();
+    assert.equal(b2.isGroupAuthorized(-100900),true);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('reject button blocks group, non-superadmin buttons cannot change access',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-approval-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    b.allowedGroupChatIds.clear();b.botId=123456;
+    await b.initialize();
+    const chat={id:-100901,type:'supergroup',title:'Rejected Group'};
+    await b.handleUpdate({my_chat_member:{chat,old_chat_member:{status:'left'},
+      new_chat_member:{status:'administrator',user:{id:123456}}}});
+    const card=f.approvals[0];
+    const cb={id:'cb2',data:'group:deny:'+card.approval.token,
+      message:{message_id:card.message_id,chat:{id:444,type:'private'}}};
+    await b.handleUpdate({callback_query:{...cb,from:{id:9999}}});
+    assert.equal(b.store.groupApproval(chat.id).status,'pending');
+    assert.equal(f.callbacks.at(-1).text,'Доступ запрещён');
+    await b.handleUpdate({callback_query:{...cb,from:{id:444}}});
+    assert.equal(b.store.groupApproval(chat.id).status,'denied');
+    await b.handleUpdate({callback_query:{...cb,from:{id:444}}});
+    assert.equal(f.callbacks.at(-1).text,'Решение уже принято');
+    await b.handleUpdate({message:{...msg(0,'anything',chat.id,'supergroup').message,chat}});
+    assert.equal(f.approvals.length,1);
+    assert.equal(f.created(),0);
+    const restart=f.newBridge();restart.allowedGroupChatIds.clear();
+    await restart.initialize();
+    assert.equal(restart.isGroupAuthorized(chat.id),false);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('callback for old request cannot approve a later request after rejoin',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-approval-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    b.allowedGroupChatIds.clear();b.botId=123456;
+    await b.initialize();
+    const chat={id:-100902,type:'supergroup',title:'Rejoined'};
+    const event={chat,old_chat_member:{status:'left'},
+      new_chat_member:{status:'member',user:{id:123456}}};
+    await b.handleUpdate({my_chat_member:event});
+    const old=f.approvals[0];
+    const cb=(card,action)=>({id:'cb-'+action,from:{id:444},data:'group:'+action+':'+card.approval.token,
+      message:{message_id:card.message_id,chat:{id:444,type:'private'}}});
+    await b.handleUpdate({callback_query:cb(old,'deny')});
+    await b.handleUpdate({my_chat_member:event});
+    assert.equal(f.approvals.length,2);
+    assert.notEqual(f.approvals[0].approval.token,f.approvals[1].approval.token);
+    await b.handleUpdate({callback_query:cb(old,'allow')});
+    assert.equal(b.store.groupApproval(chat.id).status,'pending');
+    await b.handleUpdate({callback_query:cb(f.approvals[1],'allow')});
+    assert.equal(b.store.groupApproval(chat.id).status,'allowed');
   } finally {await rm(dir,{recursive:true,force:true});}
 });
