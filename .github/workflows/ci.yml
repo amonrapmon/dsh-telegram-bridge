@@ -46,3 +46,6 @@ jobs:
         run: |
           dsh plugin --profile web add ./amonrapmon-dsh-telegram-bridge-0.1.0.tgz
           dsh plugin --profile web list
+          dsh --profile web --dump-config > /tmp/dsh-bridge-composed.yml
+          grep -Fq '@amonrapmon/dsh-telegram-bridge' /tmp/dsh-bridge-composed.yml
+          grep -Fq 'id: dsh-telegram-bridge' /tmp/dsh-bridge-composed.yml
