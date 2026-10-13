@@ -64,8 +64,8 @@ jobs:
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           for i in $(seq 1 60); do
-            if test -s "$MOCK_TELEGRAM_TRACE" && grep -Fxq 'sendMessage:ok' "$MOCK_TELEGRAM_TRACE"; then
-              echo 'Harness loaded the plugin, polled Telegram, handled /start and delivered the reply.'
+            if test -s "$MOCK_TELEGRAM_TRACE" && grep -Fxq 'sendMessage:new-success' "$MOCK_TELEGRAM_TRACE"; then
+              echo 'Harness created a session for /new after /start in a real Harness with no registered workspaces.'
               exit 0
             fi
             if ! kill -0 "$server" 2>/dev/null; then
@@ -75,7 +75,7 @@ jobs:
             fi
             sleep 1
           done
-          echo 'Bridge did not answer the mocked /start command.' >&2
+          echo 'Bridge did not successfully create a session for the mocked /new command.' >&2
           cat "$MOCK_TELEGRAM_TRACE" 2>/dev/null || true
           sed -E 's/(token=)[^ ]+/\1[REDACTED]/g' /tmp/dsh-live-smoke.log | tail -60
           exit 1
