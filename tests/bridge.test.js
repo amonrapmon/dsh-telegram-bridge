@@ -5,15 +5,21 @@ import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { TelegramBridge } from '../lib/bridge.js';
 
-function fixture(file) {
+function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) {
   const agents=new Map(), inputs=[], output=[], listeners=new Map();
   let created=0;
   const ctx={
     logger:{warn(){},info(){},error(){}},
-    workspaceRegistry:{list:()=>[{id:'workspace-one',path:'/tmp/workspace'}]},
+    workspaceRegistry:{list:()=>workspaces},
     sessionController:{
-      async create({workspaceId}) {
-        assert.equal(workspaceId,'workspace-one');
+      async create({workspaceId,cwd}) {
+        if (workspaces.length === 0) {
+          assert.equal(workspaceId,undefined);
+          assert.equal(cwd,process.cwd());
+        } else {
+          assert.equal(workspaceId,workspaces[0].id);
+          assert.equal(cwd,undefined);
+        }
         const id='session-'+(++created);
         agents.set(id,{status:'idle',followup:(message)=>inputs.push({id,message})});
         return {sessionId:id};
@@ -127,5 +133,32 @@ test('diagnostic events never include private message text or identifiers',async
     assert.doesNotMatch(combined,/SECRET_EXAMPLE_abcdef/);
     assert.doesNotMatch(combined,/999999/);
     assert.doesNotMatch(combined,/session-1/);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('a new session is created using cwd when no Harness workspace exists',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-integration-'));
+  try {
+    const f=fixture(path.join(dir,'state.json'),[]),b=f.newBridge();
+    await b.initialize();
+    await b.handleUpdate(msg(0,'/new'));
+    assert.equal(f.created(),1);
+    assert.match(f.output[0].text,/Started a new conversation/);
+    await b.handleUpdate(msg(0,'hello'));
+    assert.equal(f.inputs[0].id,'session-1');
+    assert.equal(f.inputs[0].message.content[0].text,'hello');
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('a failing /new replies with a configuration error and cannot block later updates',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-integration-'));
+  try {
+    const f=fixture(path.join(dir,'state.json'),[{id:'one'},{id:'two'}]),b=f.newBridge();
+    await b.initialize();
+    await b.handleUpdate(msg(0,'/new'));
+    assert.equal(f.created(),0);
+    assert.match(f.output[0].text,/Could not create a Harness conversation/);
+    await b.handleUpdate(msg(0,'/status'));
+    assert.equal(f.output.length,2);
+    assert.match(f.output[1].text,/No conversation in this topic yet/);
   } finally {await rm(dir,{recursive:true,force:true});}
 });
