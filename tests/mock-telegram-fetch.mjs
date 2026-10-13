@@ -25,12 +25,19 @@ globalThis.fetch = async function fakeTelegramFetch(url, options) {
   if (endpoint === 'getUpdates') {
     if (!delivered) {
       delivered = true;
-      emit('getUpdates:1');
-      return Response.json({ok:true,result:[{
-        update_id:100,
-        message:{ message_id:200, date:1760000000, chat:{id:777777,type:'private'},
-          from:{id:777777,is_bot:false,first_name:'Mock'},text:'/start' },
-      }]});
+      emit('getUpdates:2');
+      return Response.json({ok:true,result:[
+        {
+          update_id:100,
+          message:{ message_id:200, date:1760000000, chat:{id:777777,type:'private'},
+            from:{id:777777,is_bot:false,first_name:'Mock'},text:'/start' },
+        },
+        {
+          update_id:101,
+          message:{ message_id:201, date:1760000001, chat:{id:777777,type:'private'},
+            from:{id:777777,is_bot:false,first_name:'Mock'},text:'/new' },
+        },
+      ]});
     }
     // Real Telegram long-poll waits for new updates. Avoid hot-looping on CI.
     await new Promise(resolve => setTimeout(resolve, 250));
@@ -38,10 +45,15 @@ globalThis.fetch = async function fakeTelegramFetch(url, options) {
   }
   if (endpoint === 'sendMessage') {
     if (params.chat_id !== 777777) throw new Error('Bridge sent to an unexpected chat');
-    if (!params.text.includes('Each Telegram topic keeps its own conversation')) {
-      throw new Error('Bridge sent wrong response');
+    if (params.text.includes('Each Telegram topic keeps its own conversation')) {
+      emit('sendMessage:start');
+    } else if (params.text.includes('Started a new conversation in this topic')) {
+      emit('sendMessage:new-success');
+    } else if (params.text.includes('Could not create a Harness conversation')) {
+      emit('sendMessage:new-failed');
+    } else {
+      throw new Error('Bridge sent an unexpected response');
     }
-    emit('sendMessage:ok');
     return Response.json({ok:true,result:{message_id:201}});
   }
   throw new Error('Unexpected Telegram call ' + endpoint);
