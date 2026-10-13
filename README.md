@@ -139,7 +139,7 @@ conflicts. Keep exactly one polling process for each bot.
 
 - Text in/text out, no voice transcription or automatic STT.
 - Photos, documents, rich previews and automatic topic creation are not included in the first preview. Inline buttons and callback queries are implemented for superadmin group approval only.
-- Live response previews are throttled (approximately once per second). In private chats the temporary draft is followed by one durable final message; in groups the same preview message is edited to its final committed text. Short answers may finish before the first preview.
+- Live response previews are throttled (approximately once per second). Private chats use the temporary `⏳ Думаю` draft followed by a durable final message; group topics use native `typing` until content arrives. When a generation ends ahead of Telegram's preview updates, the bridge plays out up to four bounded tail updates (about 350 ms apart) before formatting the final message, rather than jumping to the full answer. Very short and non-streamed answers are sent immediately.
 - Telegram may not support animated drafts in every client. Draft errors fall back to standard final messages. If an in-progress group preview cannot be finalized, the bridge attempts to remove the stale partial before posting a complete reply.
 - The `can_stop` button for private message drafts is not enabled yet; stopping/canceling an in-progress agent turn from Telegram is not supported.
 - An update is checkpointed after its processing. A crash at the exact processing/checkpoint boundary can replay a message. Exactly-once delivery is not claimed.
