@@ -39,10 +39,10 @@ DSH_TELEGRAM_ALLOWED_USER_IDS=123456789
 
 The ID is your **numeric Telegram user ID**, not `@username`. You can find it using a Telegram user-info bot.
 
-3. Create one workspace in Harness Web UI and configure your model.
+3. Configure your model in Harness Web UI. Creating a named workspace is optional: without one, the bridge creates sessions in the Harness process working directory.
 4. Restart Harness. Open your bot's private chat and send `/start` followed by a normal message.
 
-If Harness has multiple workspaces, select a specific one using `DSH_TELEGRAM_WORKSPACE_ID`. Without a configured workspace, the bridge will not create a conversation.
+If Harness has multiple workspaces, select a specific one using `DSH_TELEGRAM_WORKSPACE_ID`.
 
 **Important:** exporting a variable in one terminal does not set it for an existing Docker container or background service. Add it to that service's private environment and restart.
 
