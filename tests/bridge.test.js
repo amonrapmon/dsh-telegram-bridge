@@ -30,7 +30,7 @@ function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) 
     },
     on(name,cb) {listeners.set(name,cb);return ()=>listeners.delete(name);},
   };
-  const approvals=[], callbacks=[], edited=[], refreshed=[];
+  const approvals=[], callbacks=[], edited=[], refreshed=[], drafts=[], previews=[], previewEdits=[];
   const api={
     async send(route,text) {output.push({key:route.key,chatId:route.chatId,threadId:route.threadId,text});},
     async requestGroupApproval(adminId,group,approval) {
@@ -45,13 +45,23 @@ function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) 
     async refreshGroupApprovalCard(adminId,messageId,group,approval) {
       refreshed.push({adminId,messageId,group,approval});
     },
+    async sendDraft(route,draftId,text) {drafts.push({route,draftId,text});},
+    async sendPreview(route,text) {
+      const message_id=2000+previews.length;
+      previews.push({route,text,message_id});
+      return {message_id};
+    },
+    async editPreview(route,messageId,text) {
+      previewEdits.push({route,messageId,text});
+    },
+    async deletePreview() {},
   };
   const newBridge=()=>new TelegramBridge(ctx,{
     allowedUserIds:[444],allowedGroupChatIds:[-100700],
     requireMention:false,workspaceId:'',
     stateFile:file,api,makeUserMessage:text=>({content:[{type:'text',text}],source:{kind:'user'}}),
   });
-  return {ctx,api,agents,inputs,output,approvals,callbacks,edited,refreshed,newBridge,created:()=>created};
+  return {ctx,api,agents,inputs,output,approvals,callbacks,edited,refreshed,drafts,previews,previewEdits,listeners,newBridge,created:()=>created};
 }
 const msg=(thread,text,chatId=444,chatType='private')=>({
   message:{ chat:{id:chatId,type:chatType,is_forum:chatType!=='private'},
@@ -303,5 +313,63 @@ test('an old pending group approval card is upgraded in place once after restart
     await b2.refreshPendingApprovalCards();
     assert.equal(f.refreshed.length,1);
     assert.equal(f.approvals.length,1);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+
+test('Harness stream event from agent reaches private Telegram draft before durable final',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-stream-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    b.streaming.initialDelayMs=0;
+    b.streaming.intervalMs=0;
+    f.api.getMe=async()=>({id:123456,username:'HarnessSmokeBot'});
+    f.api.setCommands=async()=>true;
+    f.api.getUpdates=async(_offset,signal)=>new Promise(resolve=>{
+      if(signal.aborted) resolve([]);
+      else signal.addEventListener('abort',()=>resolve([]),{once:true});
+    });
+    await b.start();
+    await b.handleUpdate(msg(7,'Привет',444,'private'));
+    assert.equal(f.created(),1);
+    const onSession=f.listeners.get('session/event');
+    const onStream=f.listeners.get('agent/assistant-stream');
+    assert.equal(typeof onStream,'function');
+    onSession({id:'session-1'},{type:'turn/start'});
+    onStream({agent:{session:{id:'session-1'}},frame:{type:'start',attemptId:'attempt-A',turn:1,step:1}});
+    onStream({agent:{session:{id:'session-1'}},frame:{
+      type:'chunk',attemptId:'attempt-A',chunk:{type:'text-delta',text:'При'}}});
+    await new Promise(resolve=>setTimeout(resolve,25));
+    await b.streaming.drain();
+    assert.ok(f.drafts.length>=1);
+    assert.equal(f.drafts[0].text,'При');
+    onSession({id:'session-1'},{type:'assistant/message',
+      data:{message:{content:[{type:'text',text:'Привет'}]}}});
+    onSession({id:'session-1'},{type:'turn/end',data:{reason:{kind:'completed'}}});
+    await b.drain();
+    assert.deepEqual(f.output.map(x=>x.text),['Привет']);
+    assert.equal(f.output[0].threadId,7);
+    await b.stop();
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('running response is not lost when /new changes only the active session binding',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-stream-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    await b.initialize();
+    await b.handleUpdate(msg(11,'first'));
+    b.onSessionEvent({id:'session-1'},{type:'turn/start'});
+    await b.handleUpdate(msg(11,'/new'));
+    assert.equal(f.created(),2);
+    assert.equal(b.store.get('444:11').sessionId,'session-2');
+    assert.equal(b.routesBySession.has('session-1'),true);
+    b.onSessionEvent({id:'session-1'},{type:'assistant/message',
+      data:{message:{content:[{type:'text',text:'Ответ на первое сообщение'}]}}});
+    b.onSessionEvent({id:'session-1'},{type:'turn/end'});
+    await b.drain();
+    assert.ok(f.output.some(x=>x.text==='Ответ на первое сообщение'));
+    assert.equal(b.routesBySession.has('session-1'),false);
+    assert.equal(b.routesBySession.has('session-2'),true);
   } finally {await rm(dir,{recursive:true,force:true});}
 });
