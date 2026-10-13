@@ -37,10 +37,12 @@ jobs:
           node-version: '24'
       - name: Install exact Harness CLI
         run: npm install --global @deepseek-ai/dsh@0.2.0-rc.2 pnpm@11.7.0
-      - name: Install plugin into a clean profile without credentials
+      - name: Pack plugin as an installable release artifact
+        run: npm pack --ignore-scripts
+      - name: Install tarball into a clean Harness profile without credentials
         env:
           DSH_HOME: ${{ runner.temp }}/dsh-bridge-smoke
           CI: 'true'
         run: |
-          dsh plugin --profile web add .
+          dsh plugin --profile web add ./amonrapmon-dsh-telegram-bridge-0.1.0.tgz
           dsh plugin --profile web list
