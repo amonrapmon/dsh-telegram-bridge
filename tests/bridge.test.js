@@ -214,6 +214,7 @@ test('bot added to group triggers one private superadmin approval card; no env g
     await b.handleUpdate({message:{...msg(12,'unauthorized',-100900,'supergroup').message,chat,from:{id:999}}});
     assert.equal(f.inputs.length,2);
     // The normal legacy static allowlist keeps its mention requirement.
+    b.allowedGroupChatIds.add(-100700);
     await b.handleUpdate({message:{...msg(13,'plain message in legacy group',-100700,'supergroup').message,
       from:{id:444}}});
     assert.equal(f.created(),2);
