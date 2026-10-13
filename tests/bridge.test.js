@@ -97,3 +97,35 @@ test('group chats require allowed chat and user before any agent session',async(
     assert.equal(b.store.get('-100701:12'),undefined);
   } finally {await rm(dir,{recursive:true,force:true});}
 });
+
+test('status command with explicit @botname replies without creating an agent session',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-integration-'));
+  try {
+    const f=fixture(path.join(dir,'state.json'));
+    const b=f.newBridge();
+    await b.initialize();
+    await b.handleUpdate(msg(0,'/status@Rapmon_bot'));
+    assert.equal(f.created(),0);
+    assert.equal(f.output.length,1);
+    assert.match(f.output[0].text,/No conversation in this topic yet/);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('diagnostic events never include private message text or identifiers',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-integration-'));
+  try {
+    const f=fixture(path.join(dir,'state.json'));
+    const captured=[];
+    f.ctx.logger.warn = text=>captured.push(text);
+    const b=f.newBridge();
+    b.diagnostics=true;
+    await b.initialize();
+    await b.handleUpdate(msg(0,'SECRET_EXAMPLE_abcdef'));
+    await b.handleUpdate({message:{...msg(0,'SECRET_EXAMPLE_abcdef').message,from:{id:999999}}});
+    const combined=captured.join('\n');
+    assert.match(combined,/message accepted/);
+    assert.match(combined,/message ignored: sender not authorized/);
+    assert.doesNotMatch(combined,/SECRET_EXAMPLE_abcdef/);
+    assert.doesNotMatch(combined,/999999/);
+    assert.doesNotMatch(combined,/session-1/);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
