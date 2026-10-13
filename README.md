@@ -120,7 +120,7 @@ Temporarily set `DSH_TELEGRAM_DIAGNOSTICS=1` in the Harness process environment,
 restart it, and inspect its logs. Trace markers include:
 
 - `connected to Telegram; starting polling`
-- `polled updates: N`
+- `poll cycle completed: N updates`
 - `message accepted` or `message ignored: ...`
 - `handling status command`
 - `submitting user text to Harness`
