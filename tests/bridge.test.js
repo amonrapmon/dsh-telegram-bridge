@@ -115,9 +115,9 @@ test('diagnostic events never include private message text or identifiers',async
   try {
     const f=fixture(path.join(dir,'state.json'));
     const captured=[];
-    f.ctx.logger.warn = text=>captured.push(text);
     const b=f.newBridge();
     b.diagnostics=true;
+    b.diagnosticSink = text => captured.push(text);
     await b.initialize();
     await b.handleUpdate(msg(0,'SECRET_EXAMPLE_abcdef'));
     await b.handleUpdate({message:{...msg(0,'SECRET_EXAMPLE_abcdef').message,from:{id:999999}}});
