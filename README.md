@@ -75,11 +75,11 @@ Group access is **off by default**. No group ID or env-file editing is required:
 4. Until approved, the group cannot submit prompts to Harness. The superadmin's choice is saved in `telegram-bridge-state.json`, alongside existing session mappings and the Telegram offset, and survives a restart.
 5. An approved group can use topics as independent conversations. An explicitly declined group stays blocked; remove and re-add the bot to request again.
 
-For security, the Telegram user allowlist is **still enforced in approved groups**. Only authorized users can prompt the agent; a group-level approval does not give everyone access to the owner's tools or data. In groups, messages must mention `@YourBot` or reply to the bot unless the existing `DSH_TELEGRAM_REQUIRE_MENTION=false` setting explicitly disables that safeguard.
+For security, the Telegram user allowlist is **still enforced in approved groups**. Only authorized users can prompt the agent; a group-level approval does not give everyone access to the owner's tools or data. **Owner-approved groups work without `@mentions` or replies to the bot.** The older `DSH_TELEGRAM_REQUIRE_MENTION` policy remains for groups authorized via the legacy static ID list.
 
 `DSH_TELEGRAM_ALLOWED_GROUP_CHAT_IDS` remains available as a legacy static override for automation and old deployments; normal onboarding does not use it. A missing private chat with the superadmin prevents delivery of the approval card, so send `/start` in private first.
 
-Bot privacy mode may limit which ordinary group messages Telegram delivers, but `my_chat_member` updates let the bot receive invitations without reading the group's conversation.
+**Telegram Privacy Mode:** To receive ordinary, unmentioned group messages, the bot must either be a group administrator or have **Group Privacy disabled** through [@BotFather](https://t.me/BotFather) (`/setprivacy` → select bot → Disable). After changing Privacy Mode, remove and re-add the bot to existing groups for the new delivery policy to take effect. The Bridge cannot process messages Telegram never delivers. In a group whose bot is not an admin and still uses Privacy Mode, only commands and replies directed to the bot arrive.
 
 ## Bot commands
 
@@ -100,7 +100,7 @@ Unknown commands are currently forwarded as ordinary text if authorized.
 | `DSH_TELEGRAM_ALLOWED_USER_IDS` | Empty | Allowed numeric user IDs; empty denies everyone |
 | `DSH_TELEGRAM_ALLOWED_GROUP_CHAT_IDS` | Empty | Optional legacy static group IDs; interactive superadmin approval is the default |
 | `DSH_TELEGRAM_WORKSPACE_ID` | Auto-select if exactly one | Target Harness workspace |
-| `DSH_TELEGRAM_REQUIRE_MENTION` | `true` | Require mention/reply in groups |
+| `DSH_TELEGRAM_REQUIRE_MENTION` | `true` | Legacy manually allowlisted groups require mention/reply; owner-approved groups automatically accept unmentioned messages |
 | `DSH_TELEGRAM_STATE_FILE` | `$DSH_HOME/telegram-bridge-state.json` | Persistent topic bindings and update offset |
 | `DSH_TELEGRAM_DIAGNOSTICS` | `0` | Set to `1` temporarily to trace receive/authorization/session/delivery without message content or IDs |
 
