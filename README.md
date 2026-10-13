@@ -13,7 +13,7 @@ One bot. Multiple chats and topics. A separate, persistent Harness conversation 
 - 🧵 Private chat topics and supergroup forum topics are routed independently.
 - 💾 Topic → Harness session bindings survive process and Docker restarts.
 - 🔁 `/new` starts a new conversation **only** in the current topic.
-- 🔒 Denies access unless the Telegram user is explicitly allowed. Group chats need a separate allowlist.
+- 🔒 Denies access unless the Telegram user is explicitly allowed. Unknown groups require an in-Telegram superadmin approval.
 - ✉️ Replies are returned to the originating chat and topic.
 - 🌍 Does not change, summarize, or translate assistant responses. The agent controls its own language.
 - 🧩 Uses the Harness `0.2.0-rc.2` session controller API rather than bypassing its sessions.
@@ -65,19 +65,21 @@ The mapping key is `chat_id:message_thread_id`. For a regular private chat it us
 
 Each topic has its own session history, but **all topics within one Harness instance still share that instance's configured tools and access privileges**. Topic isolation is conversational isolation, not a security boundary for medical or other sensitive data.
 
-### Group chats
+### Group chats: request and approve in Telegram
 
-Groups are **disabled by default**. To enable a specific group or supergroup:
+Group access is **off by default**. No group ID or env-file editing is required:
 
-```dotenv
-DSH_TELEGRAM_ALLOWED_USER_IDS=123456789
-DSH_TELEGRAM_ALLOWED_GROUP_CHAT_IDS=-1001234567890
-DSH_TELEGRAM_REQUIRE_MENTION=true
-```
+1. Open the bot's private chat and send `/start` so the bot can send you administrative notifications.
+2. Add the bot to a group or supergroup. Telegram sends a bot-membership update; an unknown group's first delivered message also acts as a fallback for pre-existing groups.
+3. The **first** numeric user in `DSH_TELEGRAM_ALLOWED_USER_IDS` is the superadmin. This user receives one private card with the group name and two inline buttons: **✅ Разрешить** or **❌ Отклонить**.
+4. Until approved, the group cannot submit prompts to Harness. The superadmin's choice is saved in `telegram-bridge-state.json`, alongside existing session mappings and the Telegram offset, and survives a restart.
+5. An approved group can use topics as independent conversations. An explicitly declined group stays blocked; remove and re-add the bot to request again.
 
-Only listed people can talk to the agent, even in an allowed group. By default the message must mention `@YourBot` or reply to a bot message. Set `DSH_TELEGRAM_REQUIRE_MENTION=false` only when everyone authorized should be able to send normal messages without a mention.
+For security, the Telegram user allowlist is **still enforced in approved groups**. Only authorized users can prompt the agent; a group-level approval does not give everyone access to the owner's tools or data. In groups, messages must mention `@YourBot` or reply to the bot unless the existing `DSH_TELEGRAM_REQUIRE_MENTION=false` setting explicitly disables that safeguard.
 
-Bot privacy mode may limit which group messages Telegram delivers to the bot. The bridge cannot recover messages Telegram never sends.
+`DSH_TELEGRAM_ALLOWED_GROUP_CHAT_IDS` remains available as a legacy static override for automation and old deployments; normal onboarding does not use it. A missing private chat with the superadmin prevents delivery of the approval card, so send `/start` in private first.
+
+Bot privacy mode may limit which ordinary group messages Telegram delivers, but `my_chat_member` updates let the bot receive invitations without reading the group's conversation.
 
 ## Bot commands
 
@@ -96,7 +98,7 @@ Unknown commands are currently forwarded as ordinary text if authorized.
 | --- | --- | --- |
 | `DSH_TELEGRAM_TOKEN` | Empty | Bot API token; empty disables polling |
 | `DSH_TELEGRAM_ALLOWED_USER_IDS` | Empty | Allowed numeric user IDs; empty denies everyone |
-| `DSH_TELEGRAM_ALLOWED_GROUP_CHAT_IDS` | Empty | Allowed group/supergroup IDs |
+| `DSH_TELEGRAM_ALLOWED_GROUP_CHAT_IDS` | Empty | Optional legacy static group IDs; interactive superadmin approval is the default |
 | `DSH_TELEGRAM_WORKSPACE_ID` | Auto-select if exactly one | Target Harness workspace |
 | `DSH_TELEGRAM_REQUIRE_MENTION` | `true` | Require mention/reply in groups |
 | `DSH_TELEGRAM_STATE_FILE` | `$DSH_HOME/telegram-bridge-state.json` | Persistent topic bindings and update offset |
@@ -134,7 +136,7 @@ conflicts. Keep exactly one polling process for each bot.
 ## Current limitations
 
 - Text in/text out, no voice transcription or automatic STT.
-- Photos, documents, inline keyboards, callback queries, rich previews and automatic topic creation are not included in the first preview.
+- Photos, documents, rich previews and automatic topic creation are not included in the first preview. Inline buttons and callback queries are implemented for superadmin group approval only.
 - Replies are sent after a Harness turn completes, not streamed token-by-token.
 - An update is checkpointed after its processing. A crash at the exact processing/checkpoint boundary can replay a message. Exactly-once delivery is not claimed.
 - Sessions remain in Harness if a topic is reset. `/new` changes its mapping, not historical records.
