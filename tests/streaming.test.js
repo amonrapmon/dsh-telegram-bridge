@@ -201,7 +201,53 @@ test('private draft includes progress state when provider has no streaming frame
   const stream=new StreamingDelivery(api,{initialDelayMs:1,intervalMs:1,workingDelayMs:2});
   stream.begin('silent',route);
   await new Promise(resolve=>setTimeout(resolve,20));
-  assert.deepEqual(calls[0],['draft','⏳ Думаю…']);
+  assert.deepEqual(calls[0],['draft','⏳ Думаю']);
   assert.equal(await stream.finish(stream.detach('silent'),route,'**Ответ**'),true);
   assert.deepEqual(calls.at(-1),['final','**Ответ**']);
+});
+
+test('finished group turn catches up progressively instead of teleporting to full answer',async()=>{
+  const route={chatId:-10084,chatType:'supergroup',threadId:32,key:'-10084:32'};
+  const {streaming,calls,tick}=setup(route);
+  streaming.catchupIntervalMs=0;
+  streaming.begin('catchup-group',route);
+  streaming.frame('catchup-group',route,frame('start'));
+  streaming.frame('catchup-group',route,frame('chunk',{chunk:{type:'text-delta',text:'Подготовил ответ: '}}));
+  await tick();
+  const final='Подготовил ответ: '+('содержательная часть. '.repeat(50));
+  const state=streaming.detach('catchup-group');
+  assert.equal(await streaming.finish(state,route,final),true);
+  const edits=calls.filter(x=>x[0]==='edit').map(x=>x[2]);
+  assert.ok(edits.length>=2 && edits.length<=4,
+    'full answer must be progressively edited in 2-4 updates');
+  assert.ok(edits.every((text,i)=>i===0||text.startsWith(edits[i-1])));
+  assert.equal(edits.at(-1),final);
+  assert.equal(calls.filter(x=>x[0]==='send').length,0);
+});
+test('finished private turn flushes remaining text via draft before durable formatted send',async()=>{
+  const route={chatId:123,chatType:'private',threadId:0,key:'123:0'};
+  const {streaming,calls,tick}=setup(route);
+  streaming.catchupIntervalMs=0;
+  streaming.begin('catchup-private',route);
+  streaming.frame('catchup-private',route,frame('start'));
+  streaming.frame('catchup-private',route,frame('chunk',{chunk:{type:'text-delta',text:'Привет. '}}));
+  await tick();
+  const final='Привет. '+('Это длинное продолжение. '.repeat(30));
+  await streaming.finish(streaming.detach('catchup-private'),route,final);
+  const drafts=calls.filter(x=>x[0]==='draft');
+  assert.ok(drafts.length>=3);
+  assert.equal(drafts.at(-1)[2],final);
+  assert.deepEqual(calls.at(-1),['send',final,0]);
+});
+test('fast short answers and replaced partials do not add fake catchup delays',async()=>{
+  const route={chatId:-1009,chatType:'supergroup',threadId:5,key:'-1009:5'};
+  const {streaming,calls,tick}=setup(route);
+  streaming.catchupIntervalMs=0;
+  streaming.begin('short',route);
+  streaming.frame('short',route,frame('start'));
+  streaming.frame('short',route,frame('chunk',{chunk:{type:'text-delta',text:'Начало'}}));
+  await tick();
+  await streaming.finish(streaming.detach('short'),route,'Другое продолжение, полностью переписано');
+  assert.deepEqual(calls.filter(x=>x[0]==='edit').map(x=>x[2]),
+    ['Другое продолжение, полностью переписано']);
 });
