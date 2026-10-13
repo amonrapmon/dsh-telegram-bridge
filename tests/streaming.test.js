@@ -141,27 +141,55 @@ test('final text identical to group preview is kept without a redundant edit',as
   assert.deepEqual(calls.map(c=>c[0]),['preview']);
 });
 
-test('group shows a real progress bubble when provider does not emit text-delta frames',async()=>{
+test('group shows native Telegram typing, not a fake working message',async()=>{
   const route={chatId:-10088,chatType:'supergroup',threadId:19,key:'-10088:19'};
   const calls=[];
   const api={
+    async sendTyping(r){calls.push(['typing',r.threadId]);return true;},
     async sendPreview(r,text){calls.push(['preview',text,r.threadId]);return {message_id:42};},
     async editPreview(r,id,text){calls.push(['edit',text,r.threadId]);},
     async editFormatted(r,id,text){calls.push(['formatted-edit',text,r.threadId]);},
     async sendFormatted(r,text){calls.push(['formatted-send',text,r.threadId]);},
   };
-  const stream=new StreamingDelivery(api,{initialDelayMs:1,intervalMs:1,workingDelayMs:2});
+  const stream=new StreamingDelivery(api,{
+    initialDelayMs:1, intervalMs:1, workingDelayMs:2, typingIntervalMs:8,
+  });
   stream.begin('unstreamed',route);
-  await new Promise(resolve=>setTimeout(resolve,25));
-  assert.deepEqual(calls[0],['preview','⏳ Думаю…',19]);
-  // A provider can publish durable assistant/message without any stream frames.
+  await new Promise(resolve=>setTimeout(resolve,28));
+  assert.ok(calls.filter(x=>x[0]==='typing').length>=2);
+  assert.ok(calls.every(x=>x[0]!=='preview'));
+  // Even with no token deltas, the first durable text becomes the first bubble.
   stream.committed('unstreamed',route,'**Gemini Pro** — февраль');
   await new Promise(resolve=>setTimeout(resolve,25));
-  assert.ok(calls.some(x=>x[0]==='edit'&&x[1].includes('Gemini Pro')));
+  assert.ok(calls.some(x=>x[0]==='preview'&&x[1].includes('Gemini Pro')));
+  assert.ok(calls.every(x=>x[1]!=='⏳ Думаю…'));
+  const typingBeforeEnd=calls.filter(x=>x[0]==='typing').length;
   const state=stream.detach('unstreamed');
   assert.equal(await stream.finish(state,route,'**Gemini Pro** — февраль'),true);
+  await new Promise(resolve=>setTimeout(resolve,25));
+  assert.equal(calls.filter(x=>x[0]==='typing').length,typingBeforeEnd);
   assert.ok(calls.some(x=>x[0]==='formatted-edit'));
   assert.equal(calls.filter(x=>x[0]==='formatted-send').length,0);
+});
+test('group typing stops when real live preview arrives, not when final response arrives',async()=>{
+  const route={chatId:-10077,chatType:'supergroup',threadId:12,key:'-10077:12'};
+  const calls=[];
+  const api={
+    async sendTyping(r){calls.push('typing');},
+    async sendPreview(r,text){calls.push('preview');return {message_id:70};},
+    async editPreview(r,id,text){calls.push('edit');},
+  };
+  const stream=new StreamingDelivery(api,{initialDelayMs:1,intervalMs:1,typingIntervalMs:6});
+  stream.begin('live',route);
+  stream.frame('live',route,{type:'start',attemptId:'a'});
+  await new Promise(resolve=>setTimeout(resolve,12));
+  stream.frame('live',route,{type:'chunk',attemptId:'a',chunk:{type:'text-delta',text:'Пишу ответ'}});
+  await new Promise(resolve=>setTimeout(resolve,25));
+  const typingBeforeEnd=calls.filter(x=>x==='typing').length;
+  assert.ok(calls.includes('preview'));
+  await new Promise(resolve=>setTimeout(resolve,18));
+  assert.equal(calls.filter(x=>x==='typing').length,typingBeforeEnd);
+  await stream.finish(stream.detach('live'),route,'Пишу ответ');
 });
 test('private draft includes progress state when provider has no streaming frames',async()=>{
   const route={chatId:98,chatType:'private',threadId:0,key:'98:0'};
