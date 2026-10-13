@@ -49,3 +49,34 @@ jobs:
           dsh --profile web --dump-config > /tmp/dsh-bridge-composed.yml
           grep -Fq '@amonrapmon/dsh-telegram-bridge' /tmp/dsh-bridge-composed.yml
           grep -Fq 'id: dsh-telegram-bridge' /tmp/dsh-bridge-composed.yml
+      - name: Verify real Harness invokes Bridge using fake Telegram API
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-bridge-smoke
+          DSH_TELEGRAM_TOKEN: 987654321:THIS_IS_NOT_A_REAL_TOKEN
+          DSH_TELEGRAM_ALLOWED_USER_IDS: '777777'
+          DSH_TELEGRAM_DIAGNOSTICS: '1'
+          MOCK_TELEGRAM_TRACE: ${{ runner.temp }}/telegram-smoke.trace
+        shell: bash
+        run: |
+          set -eu
+          export NODE_OPTIONS="--import=${GITHUB_WORKSPACE}/tests/mock-telegram-fetch.mjs"
+          timeout 35s dsh --profile web --no-open --port 3187 > /tmp/dsh-live-smoke.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if test -s "$MOCK_TELEGRAM_TRACE" && grep -Fxq 'sendMessage:ok' "$MOCK_TELEGRAM_TRACE"; then
+              echo 'Harness loaded the plugin, polled Telegram, handled /start and delivered the reply.'
+              exit 0
+            fi
+            if ! kill -0 "$server" 2>/dev/null; then
+              echo 'Harness exited prematurely.' >&2
+              sed -E 's/(token=)[^ ]+/\1[REDACTED]/g' /tmp/dsh-live-smoke.log | tail -60
+              exit 1
+            fi
+            sleep 1
+          done
+          echo 'Bridge did not answer the mocked /start command.' >&2
+          cat "$MOCK_TELEGRAM_TRACE" 2>/dev/null || true
+          sed -E 's/(token=)[^ ]+/\1[REDACTED]/g' /tmp/dsh-live-smoke.log | tail -60
+          exit 1
+
