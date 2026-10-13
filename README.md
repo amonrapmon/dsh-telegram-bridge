@@ -15,6 +15,7 @@ One bot. Multiple chats and topics. A separate, persistent Harness conversation 
 - 🔁 `/new` starts a new conversation **only** in the current topic.
 - 🔒 Denies access unless the Telegram user is explicitly allowed. Unknown groups require an in-Telegram superadmin approval.
 - ✉️ Replies are returned to the originating chat and topic.
+- 🌊 Live model responses: private chats use animated `sendMessageDraft`; groups and group topics edit one in-progress message. Only committed Harness text becomes the final answer.
 - 🌍 Does not change, summarize, or translate assistant responses. The agent controls its own language.
 - 🧩 Uses the Harness `0.2.0-rc.2` session controller API rather than bypassing its sessions.
 
@@ -137,7 +138,9 @@ conflicts. Keep exactly one polling process for each bot.
 
 - Text in/text out, no voice transcription or automatic STT.
 - Photos, documents, rich previews and automatic topic creation are not included in the first preview. Inline buttons and callback queries are implemented for superadmin group approval only.
-- Replies are sent after a Harness turn completes, not streamed token-by-token.
+- Live response previews are throttled (approximately once per second). In private chats the temporary draft is followed by one durable final message; in groups the same preview message is edited to its final committed text. Short answers may finish before the first preview.
+- Telegram may not support animated drafts in every client. Draft errors fall back to standard final messages. If an in-progress group preview cannot be finalized, the bridge attempts to remove the stale partial before posting a complete reply.
+- The `can_stop` button for private message drafts is not enabled yet; stopping/canceling an in-progress agent turn from Telegram is not supported.
 - An update is checkpointed after its processing. A crash at the exact processing/checkpoint boundary can replay a message. Exactly-once delivery is not claimed.
 - Sessions remain in Harness if a topic is reset. `/new` changes its mapping, not historical records.
 - A corrupted state file stops the bridge instead of destroying old mappings.
