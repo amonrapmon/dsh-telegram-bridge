@@ -15,7 +15,7 @@ One bot. Multiple chats and topics. A separate, persistent Harness conversation 
 - 🔁 `/new` starts a new conversation **only** in the current topic.
 - 🔒 Denies access unless the Telegram user is explicitly allowed. Unknown groups require an in-Telegram superadmin approval.
 - ✉️ Replies are returned to the originating chat and topic.
-- 🌊 Live model responses: private chats use animated `sendMessageDraft`; groups and group topics edit one in-progress message. A working indicator appears if the model does not provide live text deltas. Only committed Harness text becomes the final answer.
+- 🌊 Live model responses: private chats use animated `sendMessageDraft`; groups and group topics show Telegram's native animated typing indicator (`sendChatAction`) until actual text arrives, then progressively edit one in-progress message. No static “thinking” bubble in groups. Only committed Harness text becomes the final answer.
 - 📝 Final model responses convert Markdown headings, bold/italic, links, lists and code to Telegram-safe HTML. Malformed Telegram entities fall back to plain text.
 - 🌍 Does not change, summarize, or translate assistant responses. The agent controls its own language.
 - 🧩 Uses the Harness `0.2.0-rc.2` session controller API rather than bypassing its sessions.
