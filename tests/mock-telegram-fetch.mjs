@@ -83,6 +83,12 @@ globalThis.fetch = async function fakeTelegramFetch(url, options) {
   }
   if (endpoint === 'sendMessage') {
     if (params.reply_markup?.inline_keyboard) {
+      if (params.parse_mode !== 'HTML'
+        || !params.text.includes('\n\n')
+        || params.text.includes('\\n')
+        || !params.text.includes('<b>Группа:</b>')) {
+        throw new Error('Approval card formatting is not valid Telegram HTML');
+      }
       if (params.chat_id !== 777777 || approvalButton) {
         throw new Error('Group access request leaked or duplicated');
       }
@@ -117,7 +123,8 @@ globalThis.fetch = async function fakeTelegramFetch(url, options) {
   }
   if (endpoint === 'editMessageText') {
     if (params.chat_id !== 777777 || params.message_id !== approvalCardId
-      || !params.text.includes('Доступ разрешён')) {
+      || !params.text.includes('Доступ разрешён')
+      || params.parse_mode !== 'HTML' || params.text.includes('\\n')) {
       throw new Error('Owner approval confirmation card incorrect');
     }
     emit('editMessageText:approved');
