@@ -56,3 +56,27 @@ test('approval card contains real newlines, bold HTML and safe group title',asyn
   assert.match(calls[2].body.text,/❌ <b>Доступ отклонён<\/b>/);
   assert.equal(escapeTelegramHtml('<b>unsafe</b>'),'&lt;b&gt;unsafe&lt;/b&gt;');
 });
+
+
+test('streaming API supports private topic drafts and editable supergroup topic preview', async()=>{
+  const {calls,api}=makeClient();
+  const privateTopic={chatId:444,threadId:29,chatType:'private'};
+  const groupTopic={chatId:-100222,threadId:52,chatType:'supergroup'};
+  await api.sendDraft(privateTopic,928,'Частичный ответ');
+  assert.equal(calls[0].url.endsWith('/sendMessageDraft'),true);
+  assert.deepEqual(calls[0].body,{
+    chat_id:444,draft_id:928,text:'Частичный ответ',message_thread_id:29,
+  });
+  await api.sendPreview(groupTopic,'Готовлю ответ');
+  assert.equal(calls[1].url.endsWith('/sendMessage'),true);
+  assert.deepEqual(calls[1].body,{
+    chat_id:-100222,text:'Готовлю ответ',message_thread_id:52,
+  });
+  await api.editPreview(groupTopic,901,'Ответ готов');
+  assert.equal(calls[2].url.endsWith('/editMessageText'),true);
+  assert.deepEqual(calls[2].body,{
+    chat_id:-100222,message_id:901,text:'Ответ готов',
+  });
+  await api.deletePreview(groupTopic,901);
+  assert.equal(calls[3].url.endsWith('/deleteMessage'),true);
+});
