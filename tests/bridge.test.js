@@ -182,7 +182,9 @@ test('bot added to group triggers one private superadmin approval card; no env g
     const f=fixture(path.join(dir,'state.json'));
     const b=f.newBridge();
     b.allowedGroupChatIds.clear();
+    b.requireMention=true; // Real default: approved groups should override it.
     b.botId=123456;
+    b.botUsername='HarnessSmokeBot';
     await b.initialize();
     const chat={id:-100900,type:'supergroup',title:'My Project',is_forum:true};
     const update={my_chat_member:{chat,
@@ -201,12 +203,23 @@ test('bot added to group triggers one private superadmin approval card; no env g
     await b.handleUpdate({callback_query:callback});
     assert.equal(b.store.groupApproval(-100900).status,'allowed');
     assert.equal(f.edited[0].allowed,true);
-    await b.handleUpdate({message:{...msg(11,'@HarnessSmokeBot hello',-100900,'supergroup').message,chat,from:{id:444}}});
+    await b.handleUpdate({message:{...msg(11,'Привет без упоминания',-100900,'supergroup').message,chat,from:{id:444}}});
     assert.equal(f.created(),1);
     assert.equal(f.inputs.length,1);
-    // An authorized group may have different topic sessions.
+    assert.equal(f.inputs[0].message.content[0].text,'Привет без упоминания');
+    // An authorized group may have different topic sessions, with no mentions.
     await b.handleUpdate({message:{...msg(12,'hello in topic 2',-100900,'supergroup').message,chat,from:{id:444}}});
     assert.equal(f.created(),2);
+    // Even in an approved group, an unknown user must not reach Harness.
+    await b.handleUpdate({message:{...msg(12,'unauthorized',-100900,'supergroup').message,chat,from:{id:999}}});
+    assert.equal(f.inputs.length,2);
+    // The normal legacy static allowlist keeps its mention requirement.
+    await b.handleUpdate({message:{...msg(13,'plain message in legacy group',-100700,'supergroup').message,
+      from:{id:444}}});
+    assert.equal(f.created(),2);
+    await b.handleUpdate({message:{...msg(13,'@HarnessSmokeBot legacy message',-100700,'supergroup').message,
+      from:{id:444}}});
+    assert.equal(f.created(),3);
     const b2=f.newBridge();b2.allowedGroupChatIds.clear();
     await b2.initialize();
     assert.equal(b2.isGroupAuthorized(-100900),true);
