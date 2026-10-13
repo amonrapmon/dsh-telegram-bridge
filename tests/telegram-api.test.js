@@ -80,3 +80,38 @@ test('streaming API supports private topic drafts and editable supergroup topic 
   await api.deletePreview(groupTopic,901);
   assert.equal(calls[3].url.endsWith('/deleteMessage'),true);
 });
+
+test('formatted assistant replies use Telegram HTML, preserve topic and escape unsafe data',async()=>{
+  const {api,calls}=makeClient();
+  await api.sendFormatted({chatId:-10099,threadId:15,chatType:'supergroup'},
+    '**Gemini Pro** — [official](https://example.com/ai?a=1&b=2) <unsafe>');
+  const sent=calls[0].body;
+  assert.equal(sent.chat_id,-10099);
+  assert.equal(sent.message_thread_id,15);
+  assert.equal(sent.parse_mode,'HTML');
+  assert.match(sent.text,/<b>Gemini Pro<\/b>/);
+  assert.match(sent.text,/<a href="https:\/\/example\.com\/ai\?a=1&amp;b=2">official<\/a>/);
+  assert.match(sent.text,/&lt;unsafe&gt;/);
+  await api.editFormatted({chatId:-10099,threadId:15},88,'**Готово**');
+  const edited=calls[1].body;
+  assert.equal(edited.message_id,88);
+  assert.equal(edited.parse_mode,'HTML');
+  assert.equal(edited.text,'<b>Готово</b>');
+});
+test('a Telegram HTML parsing error retries final text without parse_mode',async()=>{
+  const calls=[];
+  const fetch=async(url,options)=>{
+    const body=JSON.parse(options.body);
+    calls.push(body);
+    if(body.parse_mode==='HTML') return {
+      status:400,json:async()=>({ok:false,description:"Bad Request: can't parse entities",error_code:400}),
+    };
+    return {status:200,json:async()=>({ok:true,result:{message_id:7}})};
+  };
+  const api=new TelegramApi('test-token',{fetch});
+  await api.sendFormatted({chatId:444,threadId:0},'**Ответ**');
+  assert.equal(calls.length,2);
+  assert.equal(calls[0].parse_mode,'HTML');
+  assert.equal(calls[1].text,'**Ответ**');
+  assert.equal('parse_mode' in calls[1],false);
+});
