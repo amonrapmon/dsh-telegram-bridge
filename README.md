@@ -100,6 +100,7 @@ Unknown commands are currently forwarded as ordinary text if authorized.
 | `DSH_TELEGRAM_WORKSPACE_ID` | Auto-select if exactly one | Target Harness workspace |
 | `DSH_TELEGRAM_REQUIRE_MENTION` | `true` | Require mention/reply in groups |
 | `DSH_TELEGRAM_STATE_FILE` | `$DSH_HOME/telegram-bridge-state.json` | Persistent topic bindings and update offset |
+| `DSH_TELEGRAM_DIAGNOSTICS` | `0` | Set to `1` temporarily to trace receive/authorization/session/delivery without message content or IDs |
 
 Don't commit your environment file. Never run two polling instances using the same Telegram bot token: Telegram rejects concurrent `getUpdates` consumers.
 
@@ -108,6 +109,27 @@ Don't commit your environment file. Never run two polling instances using the sa
 Mount a persistent `DSH_HOME` volume and pass your own token and allowlists into the Harness container. The state file is stored inside `DSH_HOME` by default.
 
 If you are using this plugin with [life-harness](https://github.com/amonrapmon/life-harness), enable it **only after** the containerized Harness itself runs correctly and this plugin passes the integration test. Do not install the old incompatible `dsh-telegram-channel@0.3.5` alongside it.
+
+## Troubleshooting silent Telegram messages
+
+The `/start` and `/status` responses come directly from this bridge, not
+from the language model. If `/start` responds but `/status` later does not,
+the issue is **upstream of Harness model execution**.
+
+Temporarily set `DSH_TELEGRAM_DIAGNOSTICS=1` in the Harness process environment,
+restart it, and inspect its logs. Trace markers include:
+
+- `connected to Telegram; starting polling`
+- `polled updates: N`
+- `message accepted` or `message ignored: ...`
+- `handling status command`
+- `submitting user text to Harness`
+- `Harness turn finished`, `assistant response delivered to Telegram`
+
+The diagnostics are deliberately metadata-only and do not log token, text,
+Telegram IDs or session IDs. Disable after identifying the issue.
+A bot whose token is polled by another process may encounter Telegram 409
+conflicts. Keep exactly one polling process for each bot.
 
 ## Current limitations
 
