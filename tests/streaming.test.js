@@ -87,10 +87,9 @@ test('separate topics keep independent previews, draft/message IDs and final tex
   const previews=calls.filter(c=>c[0]==='preview');
   const edits=calls.filter(c=>c[0]==='edit');
   assert.equal(previews.length,2);
-  assert.equal(edits.length,2);
+  // Already-final streamed texts must not trigger Telegram's no-op edit error.
+  assert.equal(edits.length,0);
   assert.deepEqual(new Set(previews.map(c=>c[2])),new Set([15,16]));
-  assert.deepEqual(new Set(edits.map(c=>c[3])),new Set([15,16]));
-  assert.notEqual(edits[0][1],edits[1][1]);
   assert.equal(calls.filter(c=>c[0]==='send').length,0);
 });
 
@@ -128,4 +127,16 @@ test('if group final edit fails the stale streaming preview is deleted and full 
   await streaming.finish(streaming.detach('failed'),route,'Полный ответ');
   assert.deepEqual(calls.map(c=>c[0]),['preview','edit','delete','send']);
   assert.equal(calls.at(-1)[1],'Полный ответ');
+});
+
+
+test('final text identical to group preview is kept without a redundant edit',async()=>{
+  const route={chatId:-10064,chatType:'supergroup',threadId:7,key:'-10064:7'};
+  const {streaming,calls,tick}=setup(route);
+  streaming.begin('same',route);
+  streaming.frame('same',route,frame('start'));
+  streaming.frame('same',route,frame('chunk',{chunk:{type:'text-delta',text:'Уже готово'}}));
+  await tick();
+  await streaming.finish(streaming.detach('same'),route,'Уже готово');
+  assert.deepEqual(calls.map(c=>c[0]),['preview']);
 });
