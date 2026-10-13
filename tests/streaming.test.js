@@ -140,3 +140,40 @@ test('final text identical to group preview is kept without a redundant edit',as
   await streaming.finish(streaming.detach('same'),route,'Уже готово');
   assert.deepEqual(calls.map(c=>c[0]),['preview']);
 });
+
+test('group shows a real progress bubble when provider does not emit text-delta frames',async()=>{
+  const route={chatId:-10088,chatType:'supergroup',threadId:19,key:'-10088:19'};
+  const calls=[];
+  const api={
+    async sendPreview(r,text){calls.push(['preview',text,r.threadId]);return {message_id:42};},
+    async editPreview(r,id,text){calls.push(['edit',text,r.threadId]);},
+    async editFormatted(r,id,text){calls.push(['formatted-edit',text,r.threadId]);},
+    async sendFormatted(r,text){calls.push(['formatted-send',text,r.threadId]);},
+  };
+  const stream=new StreamingDelivery(api,{initialDelayMs:1,intervalMs:1,workingDelayMs:2});
+  stream.begin('unstreamed',route);
+  await new Promise(resolve=>setTimeout(resolve,25));
+  assert.deepEqual(calls[0],['preview','⏳ Думаю…',19]);
+  // A provider can publish durable assistant/message without any stream frames.
+  stream.committed('unstreamed',route,'**Gemini Pro** — февраль');
+  await new Promise(resolve=>setTimeout(resolve,25));
+  assert.ok(calls.some(x=>x[0]==='edit'&&x[1].includes('Gemini Pro')));
+  const state=stream.detach('unstreamed');
+  assert.equal(await stream.finish(state,route,'**Gemini Pro** — февраль'),true);
+  assert.ok(calls.some(x=>x[0]==='formatted-edit'));
+  assert.equal(calls.filter(x=>x[0]==='formatted-send').length,0);
+});
+test('private draft includes progress state when provider has no streaming frames',async()=>{
+  const route={chatId:98,chatType:'private',threadId:0,key:'98:0'};
+  const calls=[];
+  const api={
+    async sendDraft(r,id,text){calls.push(['draft',text]);},
+    async sendFormatted(r,text){calls.push(['final',text]);},
+  };
+  const stream=new StreamingDelivery(api,{initialDelayMs:1,intervalMs:1,workingDelayMs:2});
+  stream.begin('silent',route);
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.deepEqual(calls[0],['draft','⏳ Думаю…']);
+  assert.equal(await stream.finish(stream.detach('silent'),route,'**Ответ**'),true);
+  assert.deepEqual(calls.at(-1),['final','**Ответ**']);
+});
