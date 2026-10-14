@@ -76,8 +76,10 @@ multipart binary to the authenticated STT endpoint. The archived fields
 deduplicated by Telegram chat/message ID. Audio bytes are never persisted by
 this bridge.
 
-For privacy, voice routing is **private-chat only** for the MVP; group voice
-messages are not automatically copied to the personal archive. Text routing and
+Voice messages in **approved groups and group topics** follow the exact same
+allowlisted-user, approved-group, and mention/reply rules as text messages.
+Their transcripts are archived in the current Life Harness instance's personal
+PostgreSQL database, so approve a group only when that archive is appropriate. Text routing and
 topic isolation continue to behave as before.
 
 The current implementation waits for STT inline in the Telegram polling loop.
