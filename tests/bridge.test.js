@@ -518,3 +518,44 @@ test('unapproved group and unauthorized user never reach group voice STT',async(
     assert.equal(f.created(),0);
   } finally {await rm(dir,{recursive:true,force:true});}
 });
+
+
+test('bridge routes live scoped Harness ask_user_question to an approved Telegram topic',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-question-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    f.api.getMe=async()=>({id:123456,username:'HarnessTestBot'});
+    f.api.setCommands=async()=>true;
+    f.api.getUpdates=async(_offset,signal)=>new Promise(resolve=>{
+      if(signal.aborted)return resolve([]);
+      signal.addEventListener('abort',()=>resolve([]),{once:true});
+    });
+    const prompts=[];
+    f.api.sendQuestion=async(route,text,keyboard)=>{
+      prompts.push({route,text,keyboard});
+      return {message_id:2701};
+    };
+    f.api.closeQuestion=async()=>true;
+    await b.start();
+    const groupMsg=msg(53,'Запланируй тренировку',-100700,'supergroup');
+    await b.handleUpdate(groupMsg);
+    const requestEvent=f.listeners.get('user-questions/request');
+    assert.equal(typeof requestEvent,'function');
+    const agent={session:{id:'session-1'}};
+    const pending=requestEvent({
+      agent,questions:[{id:'time',question:'Во сколько?',options:[
+        {label:'08:00'},{label:'09:00'}]}]},
+      ()=>{throw new Error('native Telegram topic was not claimed');});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(prompts.length,1);
+    assert.equal(prompts[0].route.threadId,53);
+    assert.equal(prompts[0].route.chatId,-100700);
+    const token=[...b.questions.pending.values()][0].token;
+    await b.handleUpdate({callback_query:{
+      id:'cb-question',from:{id:444},data:'q:'+token+':1',
+      message:{chat:{id:-100700,type:'supergroup'},message_id:2701}}});
+    assert.deepEqual(await pending,{answers:[{id:'time',selected:['09:00']}]});
+    assert.deepEqual(f.callbacks.at(-1),{id:'cb-question',text:'Выбрано'});
+    await b.stop();
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
