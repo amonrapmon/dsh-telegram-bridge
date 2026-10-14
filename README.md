@@ -48,6 +48,43 @@ If Harness has multiple workspaces, select a specific one using `DSH_TELEGRAM_WO
 
 **Important:** exporting a variable in one terminal does not set it for an existing Docker container or background service. Add it to that service's private environment and restart.
 
+## Voice transcription via existing STT server (experimental)
+
+Optional voice support uses the existing `transcribe-bot` HTTP API. It does **not**
+run an ASR model inside Harness. It requires PostgreSQL to archive source and
+formatted text before passing the latter to the active Harness Session.
+
+Set on the **Harness process**:
+
+```dotenv
+DSH_TELEGRAM_STT_URL=http://host.docker.internal:18080/v1/transcribe
+DSH_TELEGRAM_STT_TOKEN=secret-matching-transcribe-bot
+DSH_DA_PERSONAL_DB_PASSWORD=existing-assistant-agent-password
+DSH_TELEGRAM_PG_HOST=postgres
+```
+
+For `amonrapmon/life-harness`, configure the simpler
+`STT_ENABLED=1`, `STT_API_URL` and `STT_API_TOKEN` in its `.env`, and
+use its migration `0002_voice_transcripts.sql`. See `docs/voice.md` in
+that repository. The PostgreSQL role is the existing `assistant_agent`,
+not a superuser.
+
+Audio is downloaded via the **Harness bot's own Telegram token** only after
+user/group authorization, with a hard 20 MiB bound. It is then uploaded as
+multipart binary to the authenticated STT endpoint. The archived fields
+`raw_text`, `formatted_text`, timestamped segments and metadata are
+deduplicated by Telegram chat/message ID. Audio bytes are never persisted by
+this bridge.
+
+For privacy, voice routing is **private-chat only** for the MVP; group voice
+messages are not automatically copied to the personal archive. Text routing and
+topic isolation continue to behave as before.
+
+The current implementation waits for STT inline in the Telegram polling loop.
+Large recordings can temporarily delay subsequent Telegram updates. This is a
+known MVP limitation and not a general-purpose background job dispatcher.
+Crash-window exactly-once dispatch is also not guaranteed.
+
 ## Working with topics
 
 Enable **Topics** for your Telegram bot through BotFather, where the feature is available. The bridge does **not** automatically create topics or set your topic names.
@@ -137,7 +174,7 @@ conflicts. Keep exactly one polling process for each bot.
 
 ## Current limitations
 
-- Text in/text out, no voice transcription or automatic STT.
+- Voice transcription requires an explicitly configured authenticated STT API and database archive; disabled by default.
 - Photos, documents, rich previews and automatic topic creation are not included in the first preview. Inline buttons and callback queries are implemented for superadmin group approval only.
 - Live response previews are throttled (approximately once per second). Private chats use the temporary `⏳ Думаю` draft followed by a durable final message; group topics use native `typing` until content arrives. When a generation ends ahead of Telegram's preview updates, the bridge plays out up to four bounded tail updates (about 350 ms apart) before formatting the final message, rather than jumping to the full answer. Very short and non-streamed answers are sent immediately.
 - Telegram may not support animated drafts in every client. Draft errors fall back to standard final messages. If an in-progress group preview cannot be finalized, the bridge attempts to remove the stale partial before posting a complete reply.
