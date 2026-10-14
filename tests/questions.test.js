@@ -160,3 +160,16 @@ test('long detail is not truncated and shutdown releases pending tool question',
   await assert.rejects(pending,/aborted/);
   assert.equal(f.q.pending.size,0);
 });
+
+
+test('switching a topic Session cancels its unanswered tool and disables old buttons',async()=>{
+  const f=fixture();
+  const pending=f.q.ask(f.request([question]),()=>{throw Error('no fallback');});
+  await tick();
+  const token=f.active().token;
+  f.q.cancelForRoute(f.route.key);
+  await assert.rejects(pending,/aborted/);
+  assert.equal(f.q.pending.size,0);
+  await f.q.callback(f.choice(token,'0'));
+  assert.match(f.acks.at(-1).text,/закрыт/);
+});
