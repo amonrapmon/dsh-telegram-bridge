@@ -48,6 +48,33 @@ If Harness has multiple workspaces, select a specific one using `DSH_TELEGRAM_WO
 
 **Important:** exporting a variable in one terminal does not set it for an existing Docker container or background service. Add it to that service's private environment and restart.
 
+## Interactive questions (`ask_user_question`)
+
+When an agent in a Telegram-bound Session asks a structured question, the Bridge
+returns the **original tool result**, rather than sending the choice as a new
+user turn. The question appears in the originating private chat or group topic
+with inline buttons. Choosing one option resolves the wait and resumes the
+agent, including any calendar task paused at the decision.
+
+- **Single choice:** tap the corresponding button.
+- **Multiple choices:** toggle several buttons, then tap **✅ Готово**.
+- **Custom response:** tap **✍️ Свой ответ** and send plain text in the
+  originating topic, or use Telegram Reply directly on the question message.
+- **Several questions:** they appear one after another and the Bridge returns
+  the full structured answer batch.
+- **Skip:** sends a blank choice for that question; never approves an action.
+
+Each button is bound to an unguessable request token, the originating chat and
+message, the current Session binding, and the Telegram user allowlist. A callback
+from a different chat, stale message, or unauthorized user cannot settle the
+tool. Other user messages retain their normal next-turn delivery behavior.
+
+The live question interaction exists in memory. Restarting the Bridge cancels
+any active question wait and invalidates its buttons. The native Web answerer
+remains available as a fallback if the Telegram question cannot be sent.
+Timed questions that have already become continued after a timeout are not yet
+replayed as new Telegram cards.
+
 ## Voice transcription via existing STT server (experimental)
 
 Optional voice support uses the existing `transcribe-bot` HTTP API. It does **not**
