@@ -373,3 +373,77 @@ test('running response is not lost when /new changes only the active session bin
     assert.equal(b.routesBySession.has('session-2'),true);
   } finally {await rm(dir,{recursive:true,force:true});}
 });
+
+
+test('voice archive and STT reuse original Harness session and exact private topic',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-voice-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    await b.initialize();
+    const records=new Map(),submitted=[];
+    b.voice={
+      async transcribe(message) {
+        assert.equal(message.voice.file_id,'file-777');
+        return {raw_text:'тест сырого распознавания',
+          formatted_text:'Тест форматированного распознавания.',
+          segments:[{start:0,end:1,text:'тест'}],engine:'gigaam',
+          model:'gigaam-v3-e2e-ctc',duration_seconds:1};
+      },
+    };
+    b.voiceStore={
+      async find(route,id){return records.get(route.chatId+':'+id)??null;},
+      async save(route,message,sessionId,result){
+        assert.equal(route.threadId,41);
+        assert.equal(sessionId,'session-1');
+        assert.equal(result.raw_text,'тест сырого распознавания');
+        const record={formatted_text:result.formatted_text,submitted_at:null};
+        records.set(route.chatId+':'+message.message_id,record);
+        return record;
+      },
+      async markSubmitted(route,id){
+        submitted.push(route.chatId+':'+id);
+        records.get(route.chatId+':'+id).submitted_at='2026-10-14T00:00:00Z';
+      },
+    };
+    const update={message:{chat:{id:444,type:'private'},from:{id:444},
+      message_thread_id:41,message_id:777,voice:{file_id:'file-777',file_size:555}}};
+    await b.handleUpdate(update);
+    await b.handleUpdate(update); // repeated Telegram update, no second agent turn
+    assert.equal(f.created(),1);
+    assert.equal(f.inputs.length,1);
+    assert.equal(f.inputs[0].id,'session-1');
+    assert.equal(f.inputs[0].message.content[0].text,'Тест форматированного распознавания.');
+    assert.deepEqual(submitted,['444:777']);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('unauthorized voice does not invoke STT or create a session',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-voice-'));
+  try{
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    await b.initialize();
+    let called=0;
+    b.voice={async transcribe(){called++;}};
+    b.voiceStore={async find(){called++;}};
+    await b.handleUpdate({message:{chat:{id:444,type:'private'},from:{id:999},
+      message_id:55,voice:{file_id:'secret-voice'}}});
+    assert.equal(called,0);
+    assert.equal(f.created(),0);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('STT failure does not inject an incomplete prompt into Harness',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-voice-'));
+  try{
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    await b.initialize();
+    b.voice={async transcribe(){throw new Error('STT transport unavailable');}};
+    b.voiceStore={async find(){return null;}};
+    await b.handleUpdate({message:{chat:{id:444,type:'private'},from:{id:444},
+      message_thread_id:8,message_id:78,voice:{file_id:'voice'}}});
+    assert.equal(f.inputs.length,0);
+    assert.equal(f.output.length,1);
+    assert.match(f.output[0].text,/Не удалось обработать голосовое/);
+    assert.equal(f.output[0].threadId,8);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
