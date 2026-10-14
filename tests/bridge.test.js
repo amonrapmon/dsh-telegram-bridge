@@ -447,3 +447,74 @@ test('STT failure does not inject an incomplete prompt into Harness',async()=>{
     assert.equal(f.output[0].threadId,8);
   }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+
+test('approved group topic voice reaches the same Harness session as text',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-voice-group-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    await b.initialize();
+    b.allowedGroupChatIds.clear();
+    const group={id:-100555,type:'supergroup',is_forum:true,title:'Harness group'};
+    const {approval}=await b.store.requestGroup(group);
+    await b.store.decideGroup(approval.token,'allowed');
+    const textMsg={message:{chat:group,from:{id:444},message_thread_id:62,
+      message_id:100,text:'Первое сообщение'}};
+    await b.handleUpdate(textMsg);
+    assert.equal(f.created(),1);
+    const stored=[];
+    b.voice={async transcribe(message){
+      assert.equal(message.voice.file_id,'group-voice');
+      return {raw_text:'что у нас с задачами',formatted_text:'Что у нас с задачами?',
+        segments:[{start:0,end:2,text:'что у нас с задачами'}],
+        engine:'gigaam',model:'gigaam-v3-e2e-ctc',duration_seconds:2};
+    }};
+    b.voiceStore={
+      async find(){return null;},
+      async save(route,message,sessionId,result){
+        stored.push({route,messageId:message.message_id,sessionId,result});
+        return {formatted_text:result.formatted_text,submitted_at:null};
+      },
+      async markSubmitted(route,id){stored.push({submitted:[route.key,id]});},
+    };
+    await b.handleUpdate({message:{chat:group,from:{id:444},message_thread_id:62,
+      message_id:101,voice:{file_id:'group-voice',file_size:2048}}});
+    assert.equal(f.created(),1);
+    assert.deepEqual(f.inputs.map(x=>x.id),['session-1','session-1']);
+    assert.equal(f.inputs[1].message.content[0].text,'Что у нас с задачами?');
+    assert.equal(stored[0].route.chatType,'supergroup');
+    assert.equal(stored[0].route.threadId,62);
+    assert.equal(stored[0].sessionId,'session-1');
+    assert.deepEqual(stored[1].submitted,['-100555:62',101]);
+    b.onSessionEvent({id:'session-1'},{type:'turn/start'});
+    b.onSessionEvent({id:'session-1'},{type:'assistant/message',
+      data:{message:{content:[{type:'text',text:'Задачи проверены'}]}}});
+    b.onSessionEvent({id:'session-1'},{type:'turn/end'});
+    await b.drain();
+    assert.ok(f.output.some(x=>x.text==='Задачи проверены' && x.chatId===-100555 && x.threadId===62));
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('unapproved group and unauthorized user never reach group voice STT',async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'bridge-voice-acl-'));
+  try {
+    const f=fixture(path.join(dir,'state.json')),b=f.newBridge();
+    await b.initialize();
+    b.allowedGroupChatIds.clear();
+    let called=0;
+    b.voice={async transcribe(){called++;}};
+    b.voiceStore={async find(){called++;}};
+    const group={id:-100556,type:'supergroup',is_forum:true,title:'Blocked group'};
+    const voice=(id)=>({message:{chat:group,from:{id},message_thread_id:73,
+      message_id:108,voice:{file_id:'private-file'}}});
+    await b.handleUpdate(voice(444));
+    assert.equal(f.approvals.length,1);
+    assert.equal(called,0);
+    assert.equal(f.created(),0);
+    const pending=b.store.groupApproval(group.id);
+    await b.store.decideGroup(pending.token,'allowed');
+    await b.handleUpdate(voice(999));
+    assert.equal(called,0);
+    assert.equal(f.created(),0);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
