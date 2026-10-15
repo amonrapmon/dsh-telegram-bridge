@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { TelegramBridge } from '../lib/bridge.js';
 
 function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) {
-  const agents=new Map(), inputs=[], output=[], listeners=new Map();
+  const agents=new Map(), inputs=[], output=[], listeners=new Map(), listenerOptions=new Map();
   let created=0;
   const ctx={
     logger:{warn(){},info(){},error(){}},
@@ -28,7 +28,7 @@ function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) 
         return agents.has(id) ? {agent:agents.get(id)} : {error:new Error('missing session')};
       },
     },
-    on(name,cb) {listeners.set(name,cb);return ()=>listeners.delete(name);},
+    on(name,cb,options) {listeners.set(name,cb);listenerOptions.set(name,options);return ()=>listeners.delete(name);},
   };
   const approvals=[], callbacks=[], edited=[], refreshed=[], drafts=[], previews=[], previewEdits=[];
   const api={
@@ -61,7 +61,7 @@ function fixture(file, workspaces=[{id:'workspace-one',path:'/tmp/workspace'}]) 
     requireMention:false,workspaceId:'',
     stateFile:file,api,makeUserMessage:text=>({content:[{type:'text',text}],source:{kind:'user'}}),
   });
-  return {ctx,api,agents,inputs,output,approvals,callbacks,edited,refreshed,drafts,previews,previewEdits,listeners,newBridge,created:()=>created};
+  return {ctx,api,agents,inputs,output,approvals,callbacks,edited,refreshed,drafts,previews,previewEdits,listeners,listenerOptions,newBridge,created:()=>created};
 }
 const msg=(thread,text,chatId=444,chatType='private')=>({
   message:{ chat:{id:chatId,type:chatType,is_forum:chatType!=='private'},
@@ -541,6 +541,11 @@ test('bridge routes live scoped Harness ask_user_question to an approved Telegra
     await b.handleUpdate(groupMsg);
     const requestEvent=f.listeners.get('user-questions/request');
     assert.equal(typeof requestEvent,'function');
+    // Remote Web event forwarding is already mounted in live Harness. Without
+    // prepend this answerer sits after Web's long-running question waterfall
+    // and Telegram never receives inline buttons.
+    assert.deepEqual(f.listenerOptions.get('user-questions/request'),
+      {global:true,prepend:true});
     const agent={session:{id:'session-1'}};
     const pending=requestEvent({
       agent,questions:[{id:'time',question:'Во сколько?',options:[
